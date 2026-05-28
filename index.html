@@ -99,13 +99,6 @@ const firebaseConfig = {
           const [y, m, d] = dateStr.split('-');
           return new Date(y, m - 1, d);
         };
-        
-        // Bezpečné generování data do minulosti
-        const getPastDateStr = (daysAgo) => {
-          const d = new Date();
-          d.setDate(d.getDate() - daysAgo);
-          return formatDate(d.getFullYear(), d.getMonth(), d.getDate());
-        };
 
         // ==========================================
         // IOS-STYLE SCROLL PICKER
@@ -177,15 +170,10 @@ const firebaseConfig = {
           const [isDark, setIsDark] = useState(false);
           const [currentDate, setCurrentDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
           
-          // Data z Firestore
+          // Čistá data inicializovaná z Firestore (žádná falešná mock data)
           const [stats, setStats] = useState({ streak: 0, score: 0, level: 1 });
           const [routineDays, setRoutineDays] = useState([1, 3, 5]); 
-          
-          // Bezpečné načítání mock dat
-          const [workouts, setWorkouts] = useState({
-            [getPastDateStr(5)]: { id: 1, status: 'completed', title: 'Pravidelný trénink', isRoutine: true, xp: 50, performanceScore: 120, logs: { sq: [10,12,10], pu: [8,6,5], bw: [10,10,10], lu: [10,10,10], gl: [15,15,15], pl: [30,30,30] } },
-            [getPastDateStr(3)]: { id: 2, status: 'completed', title: 'Pravidelný trénink', isRoutine: true, xp: 50, performanceScore: 125, logs: { sq: [12,12,12], pu: [10,8,6], bw: [12,10,10], lu: [12,12,12], gl: [15,15,15], pl: [40,30,30] } },
-          });
+          const [workouts, setWorkouts] = useState({});
 
           // UI Stavy
           const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -371,6 +359,9 @@ const firebaseConfig = {
             if (!qaTitle || !qaDate) return;
             const newWorkout = { status: 'completed', title: qaTitle, isRoutine: false, xp: 20, ts: parseDateString(qaDate).getTime() };
             saveWorkoutToDB(qaDate, newWorkout, 20);
+            
+            // Lokální aktualizace pro okamžitý pocit z UI (Firebase onSnapshot to vzápětí potvrdí)
+            setStats(s => ({ ...s, score: s.score + 20, streak: s.streak + 1 }));
             setIsQuickAddOpen(false);
             setQaTitle('');
           };
@@ -432,7 +423,13 @@ const firebaseConfig = {
                 setIsModalOpen(false);
               }
 
+              // Uložení do Firebase
               saveWorkoutToDB(selectedDate, updatedWorkout, xpToGive);
+              
+              // Záchranná lokální aktualizace skóre před načtením z DB (pro plynulé UI)
+              if (xpToGive > 0) {
+                 setStats(s => ({ ...s, score: s.score + xpToGive, streak: s.streak + 1 }));
+              }
             }
           };
 
@@ -482,7 +479,7 @@ const firebaseConfig = {
               default: cutoff = now - (30 * dayMs);
             }
             return history.filter(h => h.ts >= cutoff);
-          }, [workouts, graphRange, today]);
+          }, [workouts, graphRange]);
 
           const renderGraph = () => {
             if (filteredHistory.length < 2) return <div className="h-[250px] flex items-center justify-center text-slate-400 text-sm">Nedostatek dat pro graf. Zadej více tréninků!</div>;
