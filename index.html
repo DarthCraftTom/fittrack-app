@@ -43,7 +43,7 @@
         // FIREBASE INICIALIZACE (ÚPRAVA NUTNÁ ZDE!)
         // ==========================================
         
-        // 🔴 SEM VLOŽ SVŮJ FIREBASE CONFIG Z KROKU 2 🔴
+        // 🔴 SEM VLOŽ SVŮJ FIREBASE CONFIG 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyAyZKb_Tned5ehZFz7_AnlXb91LBwb1TxU",
   authDomain: "fittrack-8cfab.firebaseapp.com",
@@ -58,11 +58,8 @@ const firebaseConfig = {
         let auth = null;
         let db = null;
 
-        // Bezpečné nastartování Firebase (Zabraňuje bílé obrazovce smrti)
         try {
-            if (!firebase.apps.length) {
-                firebase.initializeApp(firebaseConfig);
-            }
+            if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
             auth = firebase.auth();
             db = firebase.firestore();
         } catch (e) {
@@ -72,14 +69,16 @@ const firebaseConfig = {
 
         const { useState, useEffect, useRef, useMemo } = React;
 
-        // --- DEFINICE TRÉNINKOVÉHO PLÁNU ---
+        // --- DEFINICE KONSTANT ---
+        const APP_START_DATE_STR = '2026-05-31'; // Den, od kterého se automaticky generují pravidelné tréninky
+        
         const EXERCISE_PLAN = [
           { id: 'sq', name: 'Dřepy', target: 'Nohy, zadek', sets: 3, reps: '10 - 15 op.', isTime: false, maxVal: 100, tips: 'Váha je na patách, záda rovná. Jdi co nejníže to kyčle dovolí.' },
-          { id: 'pu', name: 'Kliky', target: 'Hrudník, ramena, triceps', sets: 3, reps: 'Max do selhání', isTime: false, maxVal: 100, tips: 'Pokud neuděláš klasický klik, opři se rukama o vyvýšenou plochu (např. o gauč).' },
-          { id: 'bw', name: 'Zdvihy hrudníku o lokty (Back Widows)', target: 'Záda', sets: 3, reps: '8 - 12 op.', isTime: false, maxVal: 100, tips: 'Leh na zádech, paže podél těla pokrčené kolmo nahoru. Zatlač lokty do podlahy a zvedni hrudník a horní část zad ze země.' },
-          { id: 'lu', name: 'Výpady', target: 'Nohy, rovnováha', sets: 3, reps: '10 na každou nohu', isTime: false, maxVal: 100, tips: 'Krok vpřed, zadní koleno jde těsně nad zem. Trup drž vzpřímený.' },
-          { id: 'gl', name: 'Pánevní most', target: 'Spodní záda, zadek', sets: 3, reps: '15 op.', isTime: false, maxVal: 100, tips: 'Leh na zádech, pokrčená kolena. Zvedni pánev a nahoře na 2 vteřiny zatni zadek.' },
-          { id: 'pl', name: 'Prkno (Plank)', target: 'Střed těla (Core)', sets: 3, reps: 'Co nejdéle (sekundy)', isTime: true, maxVal: 300, tips: 'Drž tělo v jedné rovině, nesmíš se prohýbat v bednech. Pravidelně dýchej.' },
+          { id: 'pu', name: 'Kliky', target: 'Hrudník, ramena, triceps', sets: 3, reps: 'Max', isTime: false, maxVal: 100, tips: 'Záda rovná, nepokládat se. Lokty mírně k tělu.' },
+          { id: 'bw', name: 'Zdvihy o lokty (Back Widows)', target: 'Záda', sets: 3, reps: '8 - 12 op.', isTime: false, maxVal: 100, tips: 'Leh na zádech, paže podél těla. Zatlač lokty do podlahy a zvedni hrudník.' },
+          { id: 'lu', name: 'Výpady', target: 'Nohy, rovnováha', sets: 3, reps: '10 na nohu', isTime: false, maxVal: 100, tips: 'Krok vpřed, zadní koleno jde těsně nad zem. Trup vzpřímený.' },
+          { id: 'gl', name: 'Pánevní most', target: 'Spodní záda, zadek', sets: 3, reps: '15 op.', isTime: false, maxVal: 100, tips: 'Leh na zádech, pokrčená kolena. Zvedni pánev a nahoře na 2 sekundy zatni.' },
+          { id: 'pl', name: 'Prkno (Plank)', target: 'Střed těla', sets: 3, reps: 'Co nejdéle (sekundy)', isTime: true, maxVal: 300, tips: 'Drž tělo v jedné rovině, nesmíš se prohýbat v bednech. Dýchej.' },
         ];
 
         const WEEK_DAYS_CONFIG = [
@@ -160,9 +159,6 @@ const firebaseConfig = {
           const today = new Date(); 
           const todayStr = formatDate(today.getFullYear(), today.getMonth(), today.getDate());
 
-          // 🔴 DATUM ZAČÁTKU APLIKACE (Před tímto datem se nebudou generovat virtuální tréninky)
-          const APP_START_DATE = parseDateString('2026-05-31');
-
           // --- STAVY ---
           const [user, setUser] = useState(null);
           const [emailInput, setEmailInput] = useState('');
@@ -173,7 +169,7 @@ const firebaseConfig = {
           const [isDark, setIsDark] = useState(false);
           const [currentDate, setCurrentDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
           
-          // Čistá data inicializovaná z Firestore (žádná falešná mock data)
+          // Data z Firestore
           const [stats, setStats] = useState({ streak: 0, score: 0, level: 1 });
           const [routineDays, setRoutineDays] = useState([1, 3, 5]); 
           const [workouts, setWorkouts] = useState({});
@@ -236,7 +232,7 @@ const firebaseConfig = {
             return () => { unsubUser(); unsubWorkouts(); };
           }, [user]);
 
-          // --- FIREBASE: PŘIHLÁŠENÍ & ODHLÁŠENÍ ---
+          // --- PŘIHLÁŠENÍ & ODHLÁŠENÍ ---
           const handleLogin = (e) => {
             e.preventDefault();
             if (!auth) return;
@@ -262,7 +258,7 @@ const firebaseConfig = {
                                   <li>Jdi na <a href="https://console.firebase.google.com/" className="text-indigo-500 underline" target="_blank">Firebase</a> a vytvoř webovou aplikaci.</li>
                                   <li>Zkopíruj <code>firebaseConfig</code>.</li>
                                   <li>Otevři kód a nahraď text <strong>"TVUJ_API_KLIC"</strong> svým skutečným klíčem.</li>
-                                  <li>Nahraj kód znovu na GitHub.</li>
+                                  <li>Nahraj kód znovu.</li>
                               </ol>
                           </div>
                           {firebaseError && <p className="text-xs text-red-500 opacity-80 break-words">{firebaseError}</p>}
@@ -270,7 +266,6 @@ const firebaseConfig = {
                   </div>
               );
           }
-
 
           // --- LOGIKA APLIKACE ---
           const year = currentDate.getFullYear();
@@ -280,32 +275,27 @@ const firebaseConfig = {
           const monthNames = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
           const dayNames = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
-          // Upravený výpočet zameškaných tréninků (včetně automatických z posledních 7 dnů)
-          const missedWorkoutsMap = new Map();
-          
-          // 1. Skutečně naplánované v DB
-          Object.entries(workouts).forEach(([dateStr, workout]) => {
-            const wDate = parseDateString(dateStr);
-            if (workout.status === 'planned' && wDate <= today) {
-              missedWorkoutsMap.set(dateStr, workout);
-            }
-          });
+          // Hledání prošvihnutých tréninků (Jak reálných tak automaticky generovaných z minulosti)
+          const missedWorkouts = useMemo(() => {
+            const missed = [];
+            // Reálně uložené a zmeškané
+            Object.entries(workouts).forEach(([dateStr, workout]) => {
+              if (workout.status === 'planned' && parseDateString(dateStr) <= today) {
+                missed.push([dateStr, workout]);
+              }
+            });
 
-          // 2. Automatické (virtuální) tréninky z nastavení (pouze posledních 7 dní, ať toho není moc)
-          for(let i = 0; i <= 7; i++) {
-            const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
-            
-            // Zabrání generování zmeškaných tréninků před datem začátku aplikace
-            if (d <= APP_START_DATE) continue;
-
-            const dateStr = formatDate(d.getFullYear(), d.getMonth(), d.getDate());
-            const dayOfWeek = d.getDay();
-            if (!workouts[dateStr] && routineDays.includes(dayOfWeek)) {
-              missedWorkoutsMap.set(dateStr, { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true });
+            // Virtuálně naplánované a vynechané (od APP_START_DATE do včerejška/dneška)
+            const startD = parseDateString(APP_START_DATE_STR);
+            for (let d = new Date(startD); d <= today; d.setDate(d.getDate() + 1)) {
+              const dStr = formatDate(d.getFullYear(), d.getMonth(), d.getDate());
+              if (routineDays.includes(d.getDay()) && !workouts[dStr]) {
+                missed.push([dStr, { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, virtual: true }]);
+              }
             }
-          }
-          
-          const missedWorkouts = Array.from(missedWorkoutsMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+            // Seřazení od nejstarších
+            return missed.sort((a, b) => (a[0] > b[0] ? 1 : -1));
+          }, [workouts, routineDays, todayStr]);
 
           const getPreviousRoutineWorkout = (currentDateStr) => {
             const sortedDates = Object.keys(workouts).sort((a, b) => new Date(b) - new Date(a));
@@ -322,13 +312,15 @@ const firebaseConfig = {
             const dateObj = parseDateString(dateStr);
             const dayOfWeek = dateObj.getDay(); 
             
-            // Zobrazí plán pro rutinu pouze, pokud je to po datu začátku aplikace
-            if (!workouts[dateStr] && routineDays.includes(dayOfWeek) && dateObj > APP_START_DATE) {
+            // Virtuální otevření tréninku pokud jsme nad startovním datem
+            if (!workouts[dateStr] && routineDays.includes(dayOfWeek) && dateStr >= APP_START_DATE_STR) {
               setNewPlanTitle('Pravidelný trénink');
               setIsRoutinePlan(true);
-            } else {
+            } else if (!workouts[dateStr]) {
               setNewPlanTitle('');
               setIsRoutinePlan(false);
+            } else {
+              setIsRoutinePlan(workouts[dateStr].isRoutine);
             }
 
             const initialLogs = {};
@@ -345,7 +337,7 @@ const firebaseConfig = {
 
           const saveSettings = () => {
             if (db && user) db.collection('users').doc(user.uid).set({ routineDays: tempRoutineDays }, { merge: true });
-            else setRoutineDays([...tempRoutineDays]); // Fallback if DB not ready
+            else setRoutineDays([...tempRoutineDays]); 
             setIsSettingsOpen(false);
           };
 
@@ -367,17 +359,22 @@ const firebaseConfig = {
           };
 
           // FIREBASE: ZÁPIS DAT
-          const saveWorkoutToDB = (dateStr, workoutData, earnedXp) => {
+          const saveWorkoutToDB = (dateStr, workoutData, earnedXp, resetStreak = false) => {
             if (!db || !user) return; // Ochrana před chybou
             const userRef = db.collection('users').doc(user.uid);
             userRef.collection('workouts').doc(dateStr).set(workoutData);
             
-            if (earnedXp !== undefined) {
-               const isSkip = workoutData.status === 'skipped' && workoutData.isRoutine;
-               userRef.set({
-                 score: firebase.firestore.FieldValue.increment(earnedXp || 0),
-                 streak: isSkip ? 0 : firebase.firestore.FieldValue.increment(earnedXp > 0 ? 1 : 0)
-               }, { merge: true });
+            let updates = {};
+            if (earnedXp !== undefined && earnedXp > 0) {
+               updates.score = firebase.firestore.FieldValue.increment(earnedXp);
+               if (!resetStreak) updates.streak = firebase.firestore.FieldValue.increment(1);
+            }
+            if (resetStreak) {
+               updates.streak = 0;
+            }
+            
+            if (Object.keys(updates).length > 0) {
+               userRef.set(updates, { merge: true });
             }
           };
 
@@ -386,7 +383,6 @@ const firebaseConfig = {
             const newWorkout = { status: 'completed', title: qaTitle, isRoutine: false, xp: 20, ts: parseDateString(qaDate).getTime() };
             saveWorkoutToDB(qaDate, newWorkout, 20);
             
-            // Lokální aktualizace pro okamžitý pocit z UI (Firebase onSnapshot to vzápětí potvrdí)
             setStats(s => ({ ...s, score: s.score + 20, streak: s.streak + 1 }));
             setIsQuickAddOpen(false);
             setQaTitle('');
@@ -394,91 +390,91 @@ const firebaseConfig = {
 
           const handleAction = (action) => {
             if (!selectedDate) return;
-            
-            let currentWorkout = workouts[selectedDate];
-            const wDateObj = parseDateString(selectedDate);
-            const dayOfWeek = wDateObj.getDay();
+            setWorkouts(prev => {
+              const newWorkouts = { ...prev };
+              const currentWorkout = newWorkouts[selectedDate];
 
-            // Pokud trénink v DB není, ale je to náš pravidelný den (a je po startu appky), vytvoříme podklad
-            if (!currentWorkout && routineDays.includes(dayOfWeek) && wDateObj > APP_START_DATE) {
-              currentWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, ts: wDateObj.getTime() };
-            }
+              if (action === 'add') {
+                newWorkouts[selectedDate] = { id: Date.now(), status: 'planned', title: newPlanTitle || 'Nový trénink', isRoutine: isRoutinePlan, ts: parseDateString(selectedDate).getTime() };
+                setIsModalOpen(false);
+              } 
+              else if (currentWorkout || isRoutinePlan) {
+                // Pokud currentWorkout neexistuje, vytvoříme dočasný pro virtuální rutinu
+                let workoutToUpdate = currentWorkout || { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, ts: parseDateString(selectedDate).getTime() };
+                let updatedWorkout = { ...workoutToUpdate };
+                let xpToGive = 0;
+                let shouldResetStreak = false;
 
-            if (action === 'add') {
-              saveWorkoutToDB(selectedDate, { status: 'planned', title: newPlanTitle || 'Nový trénink', isRoutine: isRoutinePlan, ts: parseDateString(selectedDate).getTime() });
-              setIsModalOpen(false);
-            } 
-            else if (currentWorkout) {
-              let updatedWorkout = { ...currentWorkout };
-              let xpToGive = 0;
+                if (action === 'complete_routine') {
+                  let currentPerformance = 0;
+                  Object.entries(activeLogs).forEach(([exId, sets]) => {
+                    const isTime = EXERCISE_PLAN.find(e => e.id === exId)?.isTime;
+                    const sum = sets.reduce((a, b) => a + (Number(b) || 0), 0);
+                    currentPerformance += isTime ? (sum / 5) : sum; 
+                  });
 
-              if (action === 'complete_routine') {
-                let currentPerformance = 0;
-                Object.entries(activeLogs).forEach(([exId, sets]) => {
-                  const isTime = EXERCISE_PLAN.find(e => e.id === exId)?.isTime;
-                  const sum = sets.reduce((a, b) => a + (Number(b) || 0), 0);
-                  currentPerformance += isTime ? (sum / 5) : sum; 
-                });
+                  let prevPerformanceScore = 0;
+                  const prevWorkout = getPreviousRoutineWorkout(selectedDate);
+                  if (prevWorkout && prevWorkout.performanceScore) prevPerformanceScore = prevWorkout.performanceScore;
 
-                let prevPerformanceScore = 0;
-                const prevWorkout = getPreviousRoutineWorkout(selectedDate);
-                if (prevWorkout && prevWorkout.performanceScore) prevPerformanceScore = prevWorkout.performanceScore;
+                  xpToGive = 50;
+                  let bonusXp = 0;
+                  if (prevPerformanceScore && currentPerformance > prevPerformanceScore) {
+                    bonusXp = 25;
+                    xpToGive += bonusXp;
+                    setShowBonusAlert(`Zlepšení oproti minule! Bonus +${bonusXp} XP 🚀`);
+                  }
 
-                xpToGive = 50;
-                let bonusXp = 0;
-                if (prevPerformanceScore && currentPerformance > prevPerformanceScore) {
-                  bonusXp = 25;
-                  xpToGive += bonusXp;
-                  setShowBonusAlert(`Zlepšení oproti minule! Bonus +${bonusXp} XP 🚀`);
+                  updatedWorkout = { ...updatedWorkout, status: 'completed', xp: xpToGive, performanceScore: currentPerformance, logs: activeLogs };
+                  if (!bonusXp) setIsModalOpen(false);
+                  else setTimeout(() => setIsModalOpen(false), 2500);
+                }
+                else if (action === 'complete_simple') {
+                  xpToGive = 50;
+                  updatedWorkout = { ...updatedWorkout, status: 'completed', xp: 50 };
+                  setIsModalOpen(false);
+                }
+                else if (action === 'skip_notime') {
+                  updatedWorkout = { ...updatedWorkout, status: 'skipped', skipReason: 'notime' };
+                  setIsModalOpen(false);
+                }
+                else if (action === 'skip_lazy') {
+                  updatedWorkout = { ...updatedWorkout, status: 'skipped', skipReason: 'lazy' };
+                  shouldResetStreak = updatedWorkout.isRoutine;
+                  setIsModalOpen(false);
+                }
+                else if (action === 'move') {
+                  updatedWorkout = { ...updatedWorkout, status: 'moved' };
+                  const nextDayDate = parseDateString(selectedDate);
+                  nextDayDate.setDate(nextDayDate.getDate() + 1);
+                  const nextDayStr = formatDate(nextDayDate.getFullYear(), nextDayDate.getMonth(), nextDayDate.getDate());
+                  
+                  if (!newWorkouts[nextDayStr]) {
+                    newWorkouts[nextDayStr] = { id: Date.now(), status: 'planned', title: updatedWorkout.title, isRoutine: updatedWorkout.isRoutine, ts: parseDateString(nextDayStr).getTime() };
+                  }
+                  setIsModalOpen(false);
                 }
 
-                updatedWorkout = { ...currentWorkout, status: 'completed', xp: xpToGive, performanceScore: currentPerformance, logs: activeLogs };
-                if (!bonusXp) setIsModalOpen(false);
-                else setTimeout(() => setIsModalOpen(false), 2500);
-              }
-              else if (action === 'complete_simple') {
-                xpToGive = 50;
-                updatedWorkout = { ...currentWorkout, status: 'completed', xp: 50 };
-                setIsModalOpen(false);
-              }
-              else if (action === 'skip') {
-                updatedWorkout = { ...currentWorkout, status: 'skipped' };
-                setIsModalOpen(false);
-              }
-              else if (action === 'move') {
-                updatedWorkout = { ...currentWorkout, status: 'moved' };
-                const nextDayDate = parseDateString(selectedDate);
-                nextDayDate.setDate(nextDayDate.getDate() + 1);
-                const nextDayStr = formatDate(nextDayDate.getFullYear(), nextDayDate.getMonth(), nextDayDate.getDate());
+                // Uložení do Firebase
+                saveWorkoutToDB(selectedDate, updatedWorkout, xpToGive, shouldResetStreak);
                 
-                if (!workouts[nextDayStr]) {
-                  saveWorkoutToDB(nextDayStr, { status: 'planned', title: currentWorkout.title, isRoutine: currentWorkout.isRoutine, ts: parseDateString(nextDayStr).getTime() });
+                if (xpToGive > 0) {
+                   setStats(s => ({ ...s, score: s.score + xpToGive, streak: s.streak + 1 }));
+                } else if (shouldResetStreak) {
+                   setStats(s => ({ ...s, streak: 0 }));
                 }
-                setIsModalOpen(false);
+                newWorkouts[selectedDate] = updatedWorkout;
               }
-
-              // Uložení do Firebase
-              saveWorkoutToDB(selectedDate, updatedWorkout, xpToGive);
-              
-              // Záchranná lokální aktualizace skóre před načtením z DB (pro plynulé UI)
-              if (xpToGive > 0) {
-                 setStats(s => ({ ...s, score: s.score + xpToGive, streak: s.streak + 1 }));
-              }
-            }
+              return newWorkouts;
+            });
           };
 
-          // Příprava dat pro otevřený Modal
-          let selectedWorkout = selectedDate ? workouts[selectedDate] : null;
-          if (selectedDate && !selectedWorkout) {
-             const wDateObj = parseDateString(selectedDate);
-             const dayOfWeek = wDateObj.getDay();
-             if (routineDays.includes(dayOfWeek) && wDateObj > APP_START_DATE) {
-                 // Nasimuluje rozepsaný trénink přímo do modalu
-                 selectedWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true };
-             }
-          }
+          const selectedWorkout = selectedDate ? workouts[selectedDate] : null;
+          const isVirtualRoutine = !selectedWorkout && isRoutinePlan && selectedDate >= APP_START_DATE_STR;
+          
+          const activeDisplayWorkout = selectedWorkout || (isVirtualRoutine ? { status: 'planned', title: 'Pravidelný trénink', isRoutine: true } : null);
 
-          const prevWorkout = selectedWorkout && selectedWorkout.status === 'completed' && selectedWorkout.isRoutine 
+          const prevWorkout = activeDisplayWorkout && activeDisplayWorkout.status === 'completed' && activeDisplayWorkout.isRoutine 
             ? getPreviousRoutineWorkout(selectedDate) : null;
 
           const renderDiff = (curr, prev) => {
@@ -523,7 +519,7 @@ const firebaseConfig = {
               default: cutoff = now - (30 * dayMs);
             }
             return history.filter(h => h.ts >= cutoff);
-          }, [workouts, graphRange]);
+          }, [workouts, graphRange, today]);
 
           const renderGraph = () => {
             if (filteredHistory.length < 2) return <div className="h-[250px] flex items-center justify-center text-slate-400 text-sm">Nedostatek dat pro graf. Zadej více tréninků!</div>;
@@ -658,7 +654,7 @@ const firebaseConfig = {
                           {missedWorkouts.length === 1 ? 'Nezapsaný trénink!' : `Nezapsané tréninky (${missedWorkouts.length})!`}
                         </h3>
                         <p className="text-red-700 dark:text-red-300 text-xs mt-1">Máš naplánované aktivity v minulosti, u kterých jsi nevyplnil výsledek.</p>
-                        <div className="flex gap-2 mt-2">
+                        <div className="flex gap-2 mt-2 flex-wrap">
                           {missedWorkouts.map(([date, w]) => {
                              const d = parseDateString(date);
                              return (
@@ -696,16 +692,16 @@ const firebaseConfig = {
                         const day = i + 1;
                         const dateStr = formatDate(year, month, day);
                         let workout = workouts[dateStr];
-                        const isToday = dateStr === todayStr;
-                        const wDate = parseDateString(dateStr);
-                        const dayOfWeek = wDate.getDay();
-
-                        // Vizuální doplnění pravidelných tréninků do kalendáře (pouze po startovním datu)
-                        if (!workout && routineDays.includes(dayOfWeek) && wDate > APP_START_DATE) {
-                          workout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true };
+                        const dateObj = new Date(year, month, day);
+                        
+                        // Virtuální zobrazení v kalendáři
+                        if (!workout && routineDays.includes(dateObj.getDay()) && dateStr >= APP_START_DATE_STR) {
+                            workout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, virtual: true };
                         }
 
+                        const isToday = dateStr === todayStr;
                         const todayStyles = isToday ? 'ring-2 ring-inset ring-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/10 shadow-inner' : 'bg-transparent';
+                        const wDate = parseDateString(dateStr);
                         const isMissed = workout && workout.status === 'planned' && wDate <= today;
                         const missedStyles = isMissed ? 'bg-red-50/50 dark:bg-red-900/10' : '';
 
@@ -719,12 +715,12 @@ const firebaseConfig = {
                               <div className="mt-1 space-y-1 relative z-10">
                                 <div className="md:hidden flex justify-center mt-2">
                                   {workout.status === 'completed' && <div className="w-3 h-3 rounded-full bg-green-500 shadow-sm"></div>}
-                                  {workout.status === 'planned' && <div className={`w-3 h-3 rounded-full shadow-sm ${isMissed ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`}></div>}
+                                  {workout.status === 'planned' && <div className={`w-3 h-3 rounded-full shadow-sm ${isMissed ? 'bg-red-500 animate-pulse' : 'bg-blue-500 opacity-60'}`}></div>}
                                   {workout.status === 'skipped' && <div className="w-3 h-3 rounded-full bg-slate-400 shadow-sm"></div>}
                                   {workout.status === 'moved' && <div className="w-3 h-3 rounded-full bg-orange-500 shadow-sm"></div>}
                                 </div>
                                 
-                                <div className={`hidden md:block text-xs p-1.5 rounded-lg border leading-tight line-clamp-2 ${workout.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 text-green-800 dark:text-green-400' : ''} ${workout.status === 'planned' ? (isMissed ? 'bg-red-100 border-red-300 text-red-800 font-bold' : `bg-blue-50 border-blue-200 text-blue-800 dark:text-blue-400 ${workout.isVirtual ? 'border-dashed' : ''}`) : ''} ${workout.status === 'skipped' ? 'bg-slate-100 border-slate-300 text-slate-500 opacity-80' : ''} ${workout.status === 'moved' ? 'bg-orange-50 border-orange-200 text-orange-800 opacity-60' : ''}`}>
+                                <div className={`hidden md:block text-xs p-1.5 rounded-lg border leading-tight line-clamp-2 ${workout.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 text-green-800 dark:text-green-400' : ''} ${workout.status === 'planned' ? (isMissed ? 'bg-red-100 border-red-300 text-red-800 font-bold' : 'bg-blue-50 border-blue-200 text-blue-800 dark:text-blue-400 opacity-80 border-dashed') : ''} ${workout.status === 'skipped' ? 'bg-slate-100 border-slate-300 text-slate-500 opacity-80' : ''} ${workout.status === 'moved' ? 'bg-orange-50 border-orange-200 text-orange-800 opacity-60' : ''}`}>
                                   <span className="font-semibold block truncate">
                                     {isMissed && <i className="fas fa-exclamation-triangle mr-1 text-red-500"></i>}
                                     {workout.title}
@@ -749,7 +745,7 @@ const firebaseConfig = {
                             {parseDateString(selectedDate).toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })}
                           </h3>
                           <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
-                            {selectedWorkout ? selectedWorkout.title : 'Přidat plán na den'}
+                            {activeDisplayWorkout ? activeDisplayWorkout.title : 'Přidat plán na den'}
                           </h2>
                         </div>
                         <button type="button" onClick={() => setIsModalOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-full text-slate-500">
@@ -764,9 +760,9 @@ const firebaseConfig = {
                           </div>
                         )}
 
-                        {selectedWorkout ? (
+                        {activeDisplayWorkout ? (
                           <div className="space-y-6">
-                            {selectedWorkout.isRoutine && selectedWorkout.status === 'planned' && (
+                            {activeDisplayWorkout.isRoutine && activeDisplayWorkout.status === 'planned' && (
                               <div className="space-y-4">
                                 {EXERCISE_PLAN.map((ex, index) => (
                                   <div key={ex.id} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
@@ -795,6 +791,7 @@ const firebaseConfig = {
                                         </div>
                                       ))}
                                     </div>
+
                                     <div className="mt-3 flex items-start gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-slate-900/30 p-2 rounded">
                                       <i className="fas fa-info-circle shrink-0 mt-0.5 text-indigo-400"></i>
                                       <p>{ex.tips}</p>
@@ -807,40 +804,45 @@ const firebaseConfig = {
                               </div>
                             )}
 
-                            {!selectedWorkout.isRoutine && selectedWorkout.status === 'planned' && (
+                            {!activeDisplayWorkout.isRoutine && activeDisplayWorkout.status === 'planned' && (
                               <button type="button" onClick={() => handleAction('complete_simple')} className="w-full flex items-center justify-center gap-2 bg-green-500 text-white p-3 rounded-xl font-semibold">
                                 <i className="fas fa-check-circle"></i> Odcvičeno (+50 XP)
                               </button>
                             )}
 
-                            {selectedWorkout.status === 'planned' && (
-                               <div className="grid grid-cols-2 gap-3 mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
-                                <button type="button" onClick={() => handleAction('move')} className="w-full flex items-center justify-center gap-2 bg-orange-100 text-orange-700 p-3 rounded-xl font-semibold">
-                                  <i className="fas fa-arrow-circle-right"></i> Odložit
+                            {activeDisplayWorkout.status === 'planned' && (
+                               <div className="flex flex-col gap-3 mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+                                <button type="button" onClick={() => handleAction('move')} className="w-full flex items-center justify-center gap-2 bg-orange-100 dark:bg-orange-900/30 hover:bg-orange-200 dark:hover:bg-orange-900/50 text-orange-700 dark:text-orange-400 p-3 rounded-xl font-semibold transition-colors">
+                                  <i className="fas fa-arrow-circle-right"></i> Odložit na jindy
                                 </button>
-                                <button type="button" onClick={() => handleAction('skip')} className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-700 p-3 rounded-xl font-semibold">
-                                  <i className="fas fa-times-circle"></i> Vynechat
-                                </button>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <button type="button" onClick={() => handleAction('skip_notime')} className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 p-3 rounded-xl font-semibold text-xs transition-colors">
+                                    <i className="fas fa-clock"></i> Neměl jsem čas
+                                  </button>
+                                  <button type="button" onClick={() => handleAction('skip_lazy')} className="w-full flex items-center justify-center gap-2 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 p-3 rounded-xl font-semibold text-xs transition-colors">
+                                    <i className="fas fa-couch"></i> Byl jsem lenoch
+                                  </button>
+                                </div>
                               </div>
                             )}
 
-                            {selectedWorkout.status === 'completed' && (
+                            {activeDisplayWorkout.status === 'completed' && (
                               <div className="space-y-6">
                                 <div className="text-center py-4">
                                   <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-500 rounded-full flex items-center justify-center mx-auto mb-3"><i className="fas fa-check-circle text-3xl"></i></div>
                                   <h4 className="font-bold text-lg text-slate-800 dark:text-white">Skvělá práce!</h4>
-                                  {selectedWorkout.xp && (
-                                     <span className="inline-block mt-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-3 py-1 rounded-full text-sm">+{selectedWorkout.xp} XP získáno</span>
+                                  {activeDisplayWorkout.xp && (
+                                     <span className="inline-block mt-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-3 py-1 rounded-full text-sm">+{activeDisplayWorkout.xp} XP získáno</span>
                                   )}
                                 </div>
-                                {selectedWorkout.isRoutine && selectedWorkout.logs && (
+                                {activeDisplayWorkout.isRoutine && activeDisplayWorkout.logs && (
                                   <div className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-6">
                                     <div className="flex justify-between items-end mb-2">
                                       <h5 className="font-bold text-slate-700 dark:text-slate-300">Přehled výkonu:</h5>
                                       {prevWorkout && <span className="text-[10px] text-slate-400 uppercase tracking-wider">Porovnání s minule</span>}
                                     </div>
                                     {EXERCISE_PLAN.map((ex, index) => {
-                                      const logs = selectedWorkout.logs[ex.id];
+                                      const logs = activeDisplayWorkout.logs[ex.id];
                                       const prevExLogs = prevWorkout?.logs?.[ex.id];
                                       if (!logs) return null;
                                       return (
@@ -866,6 +868,23 @@ const firebaseConfig = {
                                 )}
                               </div>
                             )}
+
+                            {activeDisplayWorkout.status === 'skipped' && (
+                              <div className="space-y-6">
+                                <div className="text-center py-6">
+                                  <div className="w-16 h-16 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <i className={`fas ${activeDisplayWorkout.skipReason === 'lazy' ? 'fa-couch' : 'fa-clock'} text-3xl`}></i>
+                                  </div>
+                                  <h4 className="font-bold text-lg text-slate-800 dark:text-white">Trénink vynechán</h4>
+                                  <p className="text-slate-500 dark:text-slate-400 mb-2">
+                                    {activeDisplayWorkout.skipReason === 'lazy' 
+                                      ? 'Byl jsi lenoch a přišel jsi o streak. Příště to dáš!' 
+                                      : 'Neměl jsi čas. Nevadí, streak ti zůstává!'}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
                           </div>
                         ) : (
                           <div className="space-y-4 mt-2">
