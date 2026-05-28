@@ -43,6 +43,7 @@
         // FIREBASE INICIALIZACE (ÚPRAVA NUTNÁ ZDE!)
         // ==========================================
         
+        // 🔴 SEM VLOŽ SVŮJ FIREBASE CONFIG Z KROKU 2 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyAyZKb_Tned5ehZFz7_AnlXb91LBwb1TxU",
   authDomain: "fittrack-8cfab.firebaseapp.com",
@@ -51,7 +52,6 @@ const firebaseConfig = {
   messagingSenderId: "468896934520",
   appId: "1:468896934520:web:c5b43ea21950d875f7db8d"
 };
-
         // ------------------------------------------------
 
         let firebaseError = null;
@@ -159,6 +159,9 @@ const firebaseConfig = {
         function App() {
           const today = new Date(); 
           const todayStr = formatDate(today.getFullYear(), today.getMonth(), today.getDate());
+
+          // 🔴 DATUM ZAČÁTKU APLIKACE (Před tímto datem se nebudou generovat virtuální tréninky)
+          const APP_START_DATE = parseDateString('2026-05-31');
 
           // --- STAVY ---
           const [user, setUser] = useState(null);
@@ -291,6 +294,10 @@ const firebaseConfig = {
           // 2. Automatické (virtuální) tréninky z nastavení (pouze posledních 7 dní, ať toho není moc)
           for(let i = 0; i <= 7; i++) {
             const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+            
+            // Zabrání generování zmeškaných tréninků před datem začátku aplikace
+            if (d <= APP_START_DATE) continue;
+
             const dateStr = formatDate(d.getFullYear(), d.getMonth(), d.getDate());
             const dayOfWeek = d.getDay();
             if (!workouts[dateStr] && routineDays.includes(dayOfWeek)) {
@@ -315,7 +322,8 @@ const firebaseConfig = {
             const dateObj = parseDateString(dateStr);
             const dayOfWeek = dateObj.getDay(); 
             
-            if (!workouts[dateStr] && routineDays.includes(dayOfWeek)) {
+            // Zobrazí plán pro rutinu pouze, pokud je to po datu začátku aplikace
+            if (!workouts[dateStr] && routineDays.includes(dayOfWeek) && dateObj > APP_START_DATE) {
               setNewPlanTitle('Pravidelný trénink');
               setIsRoutinePlan(true);
             } else {
@@ -388,11 +396,12 @@ const firebaseConfig = {
             if (!selectedDate) return;
             
             let currentWorkout = workouts[selectedDate];
-            const dayOfWeek = parseDateString(selectedDate).getDay();
+            const wDateObj = parseDateString(selectedDate);
+            const dayOfWeek = wDateObj.getDay();
 
-            // Pokud trénink v DB není, ale je to náš pravidelný den, vytvoříme virtuální podklad pro uložení
-            if (!currentWorkout && routineDays.includes(dayOfWeek)) {
-              currentWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, ts: parseDateString(selectedDate).getTime() };
+            // Pokud trénink v DB není, ale je to náš pravidelný den (a je po startu appky), vytvoříme podklad
+            if (!currentWorkout && routineDays.includes(dayOfWeek) && wDateObj > APP_START_DATE) {
+              currentWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, ts: wDateObj.getTime() };
             }
 
             if (action === 'add') {
@@ -461,8 +470,9 @@ const firebaseConfig = {
           // Příprava dat pro otevřený Modal
           let selectedWorkout = selectedDate ? workouts[selectedDate] : null;
           if (selectedDate && !selectedWorkout) {
-             const dayOfWeek = parseDateString(selectedDate).getDay();
-             if (routineDays.includes(dayOfWeek)) {
+             const wDateObj = parseDateString(selectedDate);
+             const dayOfWeek = wDateObj.getDay();
+             if (routineDays.includes(dayOfWeek) && wDateObj > APP_START_DATE) {
                  // Nasimuluje rozepsaný trénink přímo do modalu
                  selectedWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true };
              }
@@ -690,8 +700,8 @@ const firebaseConfig = {
                         const wDate = parseDateString(dateStr);
                         const dayOfWeek = wDate.getDay();
 
-                        // Vizuální doplnění pravidelných tréninků do kalendáře
-                        if (!workout && routineDays.includes(dayOfWeek)) {
+                        // Vizuální doplnění pravidelných tréninků do kalendáře (pouze po startovním datu)
+                        if (!workout && routineDays.includes(dayOfWeek) && wDate > APP_START_DATE) {
                           workout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true };
                         }
 
