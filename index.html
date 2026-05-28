@@ -43,7 +43,6 @@
         // FIREBASE INICIALIZACE (ÚPRAVA NUTNÁ ZDE!)
         // ==========================================
         
-        // 🔴 SEM VLOŽ SVŮJ FIREBASE CONFIG Z KROKU 2 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyAyZKb_Tned5ehZFz7_AnlXb91LBwb1TxU",
   authDomain: "fittrack-8cfab.firebaseapp.com",
@@ -52,6 +51,7 @@ const firebaseConfig = {
   messagingSenderId: "468896934520",
   appId: "1:468896934520:web:c5b43ea21950d875f7db8d"
 };
+
         // ------------------------------------------------
 
         let firebaseError = null;
@@ -277,10 +277,28 @@ const firebaseConfig = {
           const monthNames = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
           const dayNames = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
 
-          const missedWorkouts = Object.entries(workouts).filter(([dateStr, workout]) => {
+          // Upravený výpočet zameškaných tréninků (včetně automatických z posledních 7 dnů)
+          const missedWorkoutsMap = new Map();
+          
+          // 1. Skutečně naplánované v DB
+          Object.entries(workouts).forEach(([dateStr, workout]) => {
             const wDate = parseDateString(dateStr);
-            return workout.status === 'planned' && wDate <= today;
+            if (workout.status === 'planned' && wDate <= today) {
+              missedWorkoutsMap.set(dateStr, workout);
+            }
           });
+
+          // 2. Automatické (virtuální) tréninky z nastavení (pouze posledních 7 dní, ať toho není moc)
+          for(let i = 0; i <= 7; i++) {
+            const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+            const dateStr = formatDate(d.getFullYear(), d.getMonth(), d.getDate());
+            const dayOfWeek = d.getDay();
+            if (!workouts[dateStr] && routineDays.includes(dayOfWeek)) {
+              missedWorkoutsMap.set(dateStr, { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true });
+            }
+          }
+          
+          const missedWorkouts = Array.from(missedWorkoutsMap.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
           const getPreviousRoutineWorkout = (currentDateStr) => {
             const sortedDates = Object.keys(workouts).sort((a, b) => new Date(b) - new Date(a));
@@ -368,7 +386,14 @@ const firebaseConfig = {
 
           const handleAction = (action) => {
             if (!selectedDate) return;
-            const currentWorkout = workouts[selectedDate];
+            
+            let currentWorkout = workouts[selectedDate];
+            const dayOfWeek = parseDateString(selectedDate).getDay();
+
+            // Pokud trénink v DB není, ale je to náš pravidelný den, vytvoříme virtuální podklad pro uložení
+            if (!currentWorkout && routineDays.includes(dayOfWeek)) {
+              currentWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, ts: parseDateString(selectedDate).getTime() };
+            }
 
             if (action === 'add') {
               saveWorkoutToDB(selectedDate, { status: 'planned', title: newPlanTitle || 'Nový trénink', isRoutine: isRoutinePlan, ts: parseDateString(selectedDate).getTime() });
@@ -433,7 +458,16 @@ const firebaseConfig = {
             }
           };
 
-          const selectedWorkout = selectedDate ? workouts[selectedDate] : null;
+          // Příprava dat pro otevřený Modal
+          let selectedWorkout = selectedDate ? workouts[selectedDate] : null;
+          if (selectedDate && !selectedWorkout) {
+             const dayOfWeek = parseDateString(selectedDate).getDay();
+             if (routineDays.includes(dayOfWeek)) {
+                 // Nasimuluje rozepsaný trénink přímo do modalu
+                 selectedWorkout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true };
+             }
+          }
+
           const prevWorkout = selectedWorkout && selectedWorkout.status === 'completed' && selectedWorkout.isRoutine 
             ? getPreviousRoutineWorkout(selectedDate) : null;
 
@@ -651,11 +685,17 @@ const firebaseConfig = {
                       {Array.from({ length: daysInMonth }).map((_, i) => {
                         const day = i + 1;
                         const dateStr = formatDate(year, month, day);
-                        const workout = workouts[dateStr];
+                        let workout = workouts[dateStr];
                         const isToday = dateStr === todayStr;
+                        const wDate = parseDateString(dateStr);
+                        const dayOfWeek = wDate.getDay();
+
+                        // Vizuální doplnění pravidelných tréninků do kalendáře
+                        if (!workout && routineDays.includes(dayOfWeek)) {
+                          workout = { status: 'planned', title: 'Pravidelný trénink', isRoutine: true, isVirtual: true };
+                        }
 
                         const todayStyles = isToday ? 'ring-2 ring-inset ring-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/10 shadow-inner' : 'bg-transparent';
-                        const wDate = parseDateString(dateStr);
                         const isMissed = workout && workout.status === 'planned' && wDate <= today;
                         const missedStyles = isMissed ? 'bg-red-50/50 dark:bg-red-900/10' : '';
 
@@ -674,7 +714,7 @@ const firebaseConfig = {
                                   {workout.status === 'moved' && <div className="w-3 h-3 rounded-full bg-orange-500 shadow-sm"></div>}
                                 </div>
                                 
-                                <div className={`hidden md:block text-xs p-1.5 rounded-lg border leading-tight line-clamp-2 ${workout.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 text-green-800 dark:text-green-400' : ''} ${workout.status === 'planned' ? (isMissed ? 'bg-red-100 border-red-300 text-red-800 font-bold' : 'bg-blue-50 border-blue-200 text-blue-800 dark:text-blue-400') : ''} ${workout.status === 'skipped' ? 'bg-slate-100 border-slate-300 text-slate-500 opacity-80' : ''} ${workout.status === 'moved' ? 'bg-orange-50 border-orange-200 text-orange-800 opacity-60' : ''}`}>
+                                <div className={`hidden md:block text-xs p-1.5 rounded-lg border leading-tight line-clamp-2 ${workout.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 text-green-800 dark:text-green-400' : ''} ${workout.status === 'planned' ? (isMissed ? 'bg-red-100 border-red-300 text-red-800 font-bold' : `bg-blue-50 border-blue-200 text-blue-800 dark:text-blue-400 ${workout.isVirtual ? 'border-dashed' : ''}`) : ''} ${workout.status === 'skipped' ? 'bg-slate-100 border-slate-300 text-slate-500 opacity-80' : ''} ${workout.status === 'moved' ? 'bg-orange-50 border-orange-200 text-orange-800 opacity-60' : ''}`}>
                                   <span className="font-semibold block truncate">
                                     {isMissed && <i className="fas fa-exclamation-triangle mr-1 text-red-500"></i>}
                                     {workout.title}
