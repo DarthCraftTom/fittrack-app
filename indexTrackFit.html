@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FitTrack Kalendář</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class', theme: { extend: {} } }
+    </script>
+
+    <!-- FontAwesome Ikony -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel pro kompilaci JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase Compat Libraries (Zaručuje 100% funkčnost v jednom HTML souboru) -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+
+    <style>
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; }
+        body { -webkit-tap-highlight-color: transparent; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // ==========================================
+        // FIREBASE INICIALIZACE (ÚPRAVA NUTNÁ ZDE!)
+        // ==========================================
+        
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyAyZKb_Tned5ehZFz7_AnlXb91LBwb1TxU",
+  authDomain: "fittrack-8cfab.firebaseapp.com",
+  projectId: "fittrack-8cfab",
+  storageBucket: "fittrack-8cfab.firebasestorage.app",
+  messagingSenderId: "468896934520",
+  appId: "1:468896934520:web:c5b43ea21950d875f7db8d"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        // --- DEFINICE TRÉNINKOVÉHO PLÁNU ---
+        const EXERCISE_PLAN = [
+          { id: 'sq', name: 'Dřepy', target: 'Nohy, zadek', sets: 3, reps: '10 - 15 op.', isTime: false, maxVal: 100, tips: 'Váha je na patách, záda rovná.' },
+          { id: 'pu', name: 'Kliky', target: 'Hrudník, ramena, triceps', sets: 3, reps: 'Max', isTime: false, maxVal: 100, tips: 'Záda rovná, nepokládat se.' },
+          { id: 'bw', name: 'Zdvihy o lokty', target: 'Záda', sets: 3, reps: '8 - 12 op.', isTime: false, maxVal: 100, tips: 'Zatlač lokty do podlahy.' },
+          { id: 'lu', name: 'Výpady', target: 'Nohy, rovnováha', sets: 3, reps: '10 na nohu', isTime: false, maxVal: 100, tips: 'Zadní koleno jde těsně nad zem.' },
+          { id: 'gl', name: 'Pánevní most', target: 'Spodní záda, zadek', sets: 3, reps: '15 op.', isTime: false, maxVal: 100, tips: 'Zvedni pánev a nahoře zatni zadek.' },
+          { id: 'pl', name: 'Prkno (Plank)', target: 'Střed těla', sets: 3, reps: 'Co nejdéle (sekundy)', isTime: true, maxVal: 300, tips: 'Drž tělo v jedné rovině.' },
+        ];
+
+        const WEEK_DAYS_CONFIG = [
+          { id: 1, name: 'Pondělí', short: 'Po' }, { id: 2, name: 'Úterý', short: 'Út' },
+          { id: 3, name: 'Středa', short: 'St' }, { id: 4, name: 'Čtvrtek', short: 'Čt' },
+          { id: 5, name: 'Pátek', short: 'Pá' }, { id: 6, name: 'Sobota', short: 'So' },
+          { id: 0, name: 'Neděle', short: 'Ne' },
+        ];
+
+        const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
+        const getFirstDayOfMonth = (year, month) => {
+          let day = new Date(year, month, 1).getDay();
+          return day === 0 ? 6 : day - 1;
+        };
+        const formatDate = (year, month, day) => `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const parseDateString = (dateStr) => {
+          const [y, m, d] = dateStr.split('-');
+          return new Date(y, m - 1, d);
+        };
+
+        // ==========================================
+        // IOS-STYLE SCROLL PICKER
+        // ==========================================
+        const IOSPicker = ({ isOpen, onClose, onSelect, initialValue, isTime, maxVal }) => {
+          const [selectedValue, setSelectedValue] = useState(initialValue || 0);
+          const scrollRef = useRef(null);
+          const items = Array.from({ length: maxVal + 1 }, (_, i) => i);
+          const ITEM_HEIGHT = 44; 
+
+          useEffect(() => {
+            if (isOpen && scrollRef.current) {
+              scrollRef.current.scrollTop = (initialValue || 0) * ITEM_HEIGHT;
+              setSelectedValue(initialValue || 0);
+            }
+          }, [isOpen, initialValue]);
+
+          const handleScroll = (e) => {
+            const index = Math.round(e.target.scrollTop / ITEM_HEIGHT);
+            const safeIndex = Math.max(0, Math.min(index, maxVal));
+            setSelectedValue(prev => (prev !== safeIndex ? safeIndex : prev));
+          };
+
+          if (!isOpen) return null;
+
+          return (
+            <div className="fixed inset-0 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" style={{ zIndex: 9999 }}>
+              <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">Zadej {isTime ? 'sekundy' : 'opakování'}</span>
+                  <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times-circle text-2xl"></i></button>
+                </div>
+                <div className="relative h-[220px] w-full overflow-hidden flex justify-center bg-white dark:bg-slate-800">
+                  <div className="absolute top-1/2 left-4 right-4 h-[44px] -mt-[22px] border-y-2 border-indigo-500 bg-indigo-50/20 dark:bg-indigo-900/20 pointer-events-none rounded-sm"></div>
+                  <div ref={scrollRef} onScroll={handleScroll} className="h-full w-full overflow-y-auto overflow-x-hidden touch-pan-y snap-y snap-mandatory scrollbar-hide flex flex-col items-center py-[88px] relative z-10" style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
+                    {items.map(num => (
+                      <div key={num} className={`h-[44px] w-full flex-shrink-0 flex items-center justify-center snap-center text-xl transform-gpu ${selectedValue === num ? 'font-bold text-indigo-600 dark:text-indigo-400' : 'text-slate-400 opacity-50'}`}>
+                        {num} {selectedValue === num ? (isTime ? 's' : 'x') : ''}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="absolute top-0 left-0 right-0 h-[88px] bg-gradient-to-b from-white dark:from-slate-800 to-transparent pointer-events-none z-20"></div>
+                  <div className="absolute bottom-0 left-0 right-0 h-[88px] bg-gradient-to-t from-white dark:from-slate-800 to-transparent pointer-events-none z-20"></div>
+                </div>
+                <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50">
+                  <button type="button" onClick={() => { onSelect(selectedValue); onClose(); }} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md transition-colors">
+                    Potvrdit: {selectedValue} {isTime ? 'sekund' : 'opakování'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        // ==========================================
+        // HLAVNÍ APLIKACE
+        // ==========================================
+        function App() {
+          const today = new Date(); 
+          const todayStr = formatDate(today.getFullYear(), today.getMonth(), today.getDate());
+
+          // --- STAVY ---
+          const [user, setUser] = useState(null);
+          const [emailInput, setEmailInput] = useState('');
+          const [passwordInput, setPasswordInput] = useState('');
+          const [loginError, setLoginError] = useState(false);
+          const [isLoading, setIsLoading] = useState(true);
+
+          const [isDark, setIsDark] = useState(false);
+          const [currentDate, setCurrentDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+          
+          // Data z Firestore
+          const [stats, setStats] = useState({ streak: 0, score: 0, level: 1 });
+          const [routineDays, setRoutineDays] = useState([1, 3, 5]); 
+          const [workouts, setWorkouts] = useState({});
+
+          // UI Stavy
+          const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+          const [tempRoutineDays, setTempRoutineDays] = useState([]);
+          const [selectedDate, setSelectedDate] = useState(null);
+          const [isModalOpen, setIsModalOpen] = useState(false);
+          const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+          const [isGraphOpen, setIsGraphOpen] = useState(false);
+          const [graphRange, setGraphRange] = useState('1M'); 
+          const [pickerConfig, setPickerConfig] = useState({ isOpen: false, exId: null, setIdx: null, isTime: false, maxVal: 100, currentVal: 0 });
+          const [newPlanTitle, setNewPlanTitle] = useState('');
+          const [isRoutinePlan, setIsRoutinePlan] = useState(false);
+          const [activeLogs, setActiveLogs] = useState({});
+          const [showBonusAlert, setShowBonusAlert] = useState(null);
+          const [qaDate, setQaDate] = useState(todayStr);
+          const [qaTitle, setQaTitle] = useState('');
+
+          useEffect(() => {
+            const hour = new Date().getHours();
+            if (hour >= 20 || hour < 6) setIsDark(true);
+          }, []);
+
+          // --- FIREBASE: SLEDOVÁNÍ PŘIHLÁŠENÍ ---
+          useEffect(() => {
+            const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+              setUser(currentUser);
+              setIsLoading(false);
+            });
+            return () => unsubscribe();
+          }, []);
+
+          // --- FIREBASE: NAČÍTÁNÍ DAT (Realtime) ---
+          useEffect(() => {
+            if (!user) return;
+            const userRef = db.collection('users').doc(user.uid);
+            
+            // 1. Načtení uživatelských statistik a nastavení
+            const unsubUser = userRef.onSnapshot((doc) => {
+              if (doc.exists) {
+                const data = doc.data();
+                setStats({ score: data.score || 0, streak: data.streak || 0, level: Math.floor((data.score || 0) / 1000) + 1 });
+                setRoutineDays(data.routineDays || [1, 3, 5]);
+              } else {
+                // Založení nového uživatele v DB
+                userRef.set({ score: 0, streak: 0, routineDays: [1, 3, 5] });
+              }
+            });
+
+            // 2. Načtení všech tréninků
+            const unsubWorkouts = userRef.collection('workouts').onSnapshot((snap) => {
+              const fetchedWorkouts = {};
+              snap.forEach(doc => { fetchedWorkouts[doc.id] = doc.data(); });
+              setWorkouts(fetchedWorkouts);
+            });
+
+            return () => { unsubUser(); unsubWorkouts(); };
+          }, [user]);
+
+          // --- FIREBASE: PŘIHLÁŠENÍ & ODHLÁŠENÍ ---
+          const handleLogin = (e) => {
+            e.preventDefault();
+            auth.signInWithEmailAndPassword(emailInput, passwordInput)
+              .then(() => { setLoginError(false); setPasswordInput(''); })
+              .catch((error) => { setLoginError(true); console.error(error); });
+          };
+          const handleLogout = () => auth.signOut();
+
+          // --- LOGIKA APLIKACE ---
+          const year = currentDate.getFullYear();
+          const month = currentDate.getMonth();
+          const daysInMonth = getDaysInMonth(year, month);
+          const firstDay = getFirstDayOfMonth(year, month);
+          const monthNames = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
+          const dayNames = ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"];
+
+          const missedWorkouts = Object.entries(workouts).filter(([dateStr, workout]) => {
+            const wDate = parseDateString(dateStr);
+            return workout.status === 'planned' && wDate <= today;
+          });
+
+          const getPreviousRoutineWorkout = (currentDateStr) => {
+            const sortedDates = Object.keys(workouts).sort((a, b) => new Date(b) - new Date(a));
+            for (let date of sortedDates) {
+              if (date < currentDateStr && workouts[date].isRoutine && workouts[date].status === 'completed') {
+                return workouts[date];
+              }
+            }
+            return null;
+          };
+
+          const openModal = (dateStr) => {
+            setSelectedDate(dateStr);
+            const dateObj = parseDateString(dateStr);
+            const dayOfWeek = dateObj.getDay(); 
+            
+            if (!workouts[dateStr] && routineDays.includes(dayOfWeek)) {
+              setNewPlanTitle('Pravidelný trénink');
+              setIsRoutinePlan(true);
+            } else {
+              setNewPlanTitle('');
+              setIsRoutinePlan(false);
+            }
+
+            const initialLogs = {};
+            EXERCISE_PLAN.forEach(ex => initialLogs[ex.id] = ['', '', '']);
+            setActiveLogs(workouts[dateStr]?.logs || initialLogs);
+            setShowBonusAlert(null);
+            setIsModalOpen(true);
+          };
+
+          const openSettings = () => {
+            setTempRoutineDays([...routineDays]);
+            setIsSettingsOpen(true);
+          };
+
+          const saveSettings = () => {
+            db.collection('users').doc(user.uid).set({ routineDays: tempRoutineDays }, { merge: true });
+            setIsSettingsOpen(false);
+          };
+
+          const toggleRoutineDay = (dayId) => {
+            if (tempRoutineDays.includes(dayId)) setTempRoutineDays(tempRoutineDays.filter(d => d !== dayId));
+            else setTempRoutineDays([...tempRoutineDays, dayId]);
+          };
+
+          const openPicker = (exId, setIdx, isTime, maxVal) => {
+            const currentVal = parseInt(activeLogs[exId]?.[setIdx]) || 0;
+            setPickerConfig({ isOpen: true, exId, setIdx, isTime, maxVal, currentVal });
+          };
+
+          const handlePickerSelect = (value) => {
+            setActiveLogs(prev => ({
+              ...prev,
+              [pickerConfig.exId]: prev[pickerConfig.exId].map((val, idx) => idx === pickerConfig.setIdx ? value : val)
+            }));
+          };
+
+          // FIREBASE: ZÁPIS DAT
+          const saveWorkoutToDB = (dateStr, workoutData, earnedXp) => {
+            const userRef = db.collection('users').doc(user.uid);
+            userRef.collection('workouts').doc(dateStr).set(workoutData);
+            
+            if (earnedXp !== undefined) {
+               const isSkip = workoutData.status === 'skipped' && workoutData.isRoutine;
+               userRef.set({
+                 score: firebase.firestore.FieldValue.increment(earnedXp || 0),
+                 streak: isSkip ? 0 : firebase.firestore.FieldValue.increment(earnedXp > 0 ? 1 : 0)
+               }, { merge: true });
+            }
+          };
+
+          const handleQuickAdd = () => {
+            if (!qaTitle || !qaDate) return;
+            const newWorkout = { status: 'completed', title: qaTitle, isRoutine: false, xp: 20, ts: parseDateString(qaDate).getTime() };
+            saveWorkoutToDB(qaDate, newWorkout, 20);
+            setIsQuickAddOpen(false);
+            setQaTitle('');
+          };
+
+          const handleAction = (action) => {
+            if (!selectedDate) return;
+            const currentWorkout = workouts[selectedDate];
+
+            if (action === 'add') {
+              saveWorkoutToDB(selectedDate, { status: 'planned', title: newPlanTitle || 'Nový trénink', isRoutine: isRoutinePlan, ts: parseDateString(selectedDate).getTime() });
+              setIsModalOpen(false);
+            } 
+            else if (currentWorkout) {
+              let updatedWorkout = { ...currentWorkout };
+              let xpToGive = 0;
+
+              if (action === 'complete_routine') {
+                let currentPerformance = 0;
+                Object.entries(activeLogs).forEach(([exId, sets]) => {
+                  const isTime = EXERCISE_PLAN.find(e => e.id === exId)?.isTime;
+                  const sum = sets.reduce((a, b) => a + (Number(b) || 0), 0);
+                  currentPerformance += isTime ? (sum / 5) : sum; 
+                });
+
+                let prevPerformanceScore = 0;
+                const prevWorkout = getPreviousRoutineWorkout(selectedDate);
+                if (prevWorkout && prevWorkout.performanceScore) prevPerformanceScore = prevWorkout.performanceScore;
+
+                xpToGive = 50;
+                let bonusXp = 0;
+                if (prevPerformanceScore && currentPerformance > prevPerformanceScore) {
+                  bonusXp = 25;
+                  xpToGive += bonusXp;
+                  setShowBonusAlert(`Zlepšení oproti minule! Bonus +${bonusXp} XP 🚀`);
+                }
+
+                updatedWorkout = { ...currentWorkout, status: 'completed', xp: xpToGive, performanceScore: currentPerformance, logs: activeLogs };
+                if (!bonusXp) setIsModalOpen(false);
+                else setTimeout(() => setIsModalOpen(false), 2500);
+              }
+              else if (action === 'complete_simple') {
+                xpToGive = 50;
+                updatedWorkout = { ...currentWorkout, status: 'completed', xp: 50 };
+                setIsModalOpen(false);
+              }
+              else if (action === 'skip') {
+                updatedWorkout = { ...currentWorkout, status: 'skipped' };
+                // Nulování streaku probíhá uvnitř saveWorkoutToDB pokud je to isRoutine
+                setIsModalOpen(false);
+              }
+              else if (action === 'move') {
+                updatedWorkout = { ...currentWorkout, status: 'moved' };
+                const nextDayDate = parseDateString(selectedDate);
+                nextDayDate.setDate(nextDayDate.getDate() + 1);
+                const nextDayStr = formatDate(nextDayDate.getFullYear(), nextDayDate.getMonth(), nextDayDate.getDate());
+                
+                if (!workouts[nextDayStr]) {
+                  saveWorkoutToDB(nextDayStr, { status: 'planned', title: currentWorkout.title, isRoutine: currentWorkout.isRoutine, ts: parseDateString(nextDayStr).getTime() });
+                }
+                setIsModalOpen(false);
+              }
+
+              saveWorkoutToDB(selectedDate, updatedWorkout, xpToGive);
+            }
+          };
+
+          const selectedWorkout = selectedDate ? workouts[selectedDate] : null;
+          const prevWorkout = selectedWorkout && selectedWorkout.status === 'completed' && selectedWorkout.isRoutine 
+            ? getPreviousRoutineWorkout(selectedDate) : null;
+
+          const renderDiff = (curr, prev) => {
+            if (curr === '' || prev === '' || curr === undefined || prev === undefined) return null;
+            const c = Number(curr), p = Number(prev);
+            if (isNaN(c) || isNaN(p)) return null;
+            const diff = c - p;
+            if (diff === 0) return <span className="text-[10px] text-slate-400 mt-1">stejné</span>;
+            const pct = p === 0 ? (c > 0 ? 100 : 0) : Math.round((diff / p) * 100);
+            const isPositive = diff > 0;
+            const color = isPositive ? 'text-green-500' : 'text-red-500';
+            const sign = isPositive ? '+' : ''; 
+            return <span className={`text-[10px] font-bold mt-1 ${color}`}>{sign}{pct}% ({sign}{diff})</span>;
+          };
+
+          const filteredHistory = useMemo(() => {
+            // Vytvoříme pole historie skóre na základě reálných odcvičených tréninků
+            const history = [];
+            const sortedDates = Object.keys(workouts).sort((a,b) => new Date(a) - new Date(b));
+            let currentScore = 0;
+            
+            sortedDates.forEach(date => {
+               const w = workouts[date];
+               if(w.status === 'completed' && w.xp) {
+                   currentScore += w.xp;
+                   history.push({ ts: w.ts || parseDateString(date).getTime(), score: currentScore });
+               }
+            });
+
+            if (history.length === 0) return [];
+            const now = today.getTime();
+            const dayMs = 24 * 60 * 60 * 1000;
+            let cutoff = 0;
+            switch (graphRange) {
+              case '1D': cutoff = now - dayMs; break; 
+              case '7D': cutoff = now - (7 * dayMs); break;
+              case '1M': cutoff = now - (30 * dayMs); break;
+              case '3M': cutoff = now - (90 * dayMs); break;
+              case '6M': cutoff = now - (180 * dayMs); break;
+              case '1R': cutoff = now - (365 * dayMs); break;
+              case '2R': cutoff = now - (730 * dayMs); break;
+              case 'VŠE': cutoff = 0; break;
+              default: cutoff = now - (30 * dayMs);
+            }
+            return history.filter(h => h.ts >= cutoff);
+          }, [workouts, graphRange, today]);
+
+          const renderGraph = () => {
+            if (filteredHistory.length < 2) return <div className="h-[250px] flex items-center justify-center text-slate-400 text-sm">Nedostatek dat pro graf. Zadej více tréninků!</div>;
+            const w = 500, h = 250;
+            const minX = filteredHistory[0].ts;
+            const maxX = filteredHistory[filteredHistory.length - 1].ts;
+            const scores = filteredHistory.map(d => d.score);
+            let minY = Math.min(...scores);
+            let maxY = Math.max(...scores);
+            const yPadding = (maxY - minY) * 0.1 || 10;
+            minY = Math.max(0, minY - yPadding);
+            maxY = maxY + yPadding;
+
+            const getX = (ts) => (maxX === minX ? w / 2 : ((ts - minX) / (maxX - minX)) * w);
+            const getY = (score) => h - (((score - minY) / (maxY - minY)) * h);
+
+            const pathData = filteredHistory.map((d, i) => `${i === 0 ? 'M' : 'L'} ${getX(d.ts)},${getY(d.score)}`).join(' ');
+            const areaData = `${pathData} L ${w},${h} L 0,${h} Z`;
+
+            return (
+              <div className="relative w-full h-[250px] mt-4">
+                <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full h-full overflow-visible">
+                  <defs>
+                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4" />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+                  <line x1="0" y1={0} x2={w} y2={0} stroke="currentColor" strokeOpacity="0.1" strokeDasharray="4 4" className="text-slate-500" />
+                  <line x1="0" y1={h/2} x2={w} y2={h/2} stroke="currentColor" strokeOpacity="0.1" strokeDasharray="4 4" className="text-slate-500" />
+                  <line x1="0" y1={h} x2={w} y2={h} stroke="currentColor" strokeOpacity="0.1" strokeDasharray="4 4" className="text-slate-500" />
+                  <path d={areaData} fill="url(#chartGradient)" />
+                  <path d={pathData} fill="none" stroke="#6366f1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-md" />
+                  <circle cx={getX(filteredHistory[filteredHistory.length-1].ts)} cy={getY(filteredHistory[filteredHistory.length-1].score)} r="5" fill="#ffffff" stroke="#6366f1" strokeWidth="2" />
+                </svg>
+                <div className="absolute left-0 top-0 text-[10px] text-slate-400 font-medium -translate-y-1/2 bg-white/50 dark:bg-slate-900/50 px-1 rounded">{Math.round(maxY)} XP</div>
+                <div className="absolute left-0 bottom-0 text-[10px] text-slate-400 font-medium translate-y-1/2 bg-white/50 dark:bg-slate-900/50 px-1 rounded">{Math.round(minY)} XP</div>
+                <div className="absolute left-0 -bottom-6 text-[10px] text-slate-400 font-medium">{new Date(minX).toLocaleDateString('cs-CZ', {day: 'numeric', month: 'short'})}</div>
+                <div className="absolute right-0 -bottom-6 text-[10px] text-indigo-500 font-bold">Dnes</div>
+              </div>
+            );
+          };
+
+          if (isLoading) return <div className="min-h-screen flex items-center justify-center"><i className="fas fa-spinner fa-spin text-4xl text-indigo-500"></i></div>;
+
+          if (!user) {
+            return (
+              <div className={`min-h-screen flex items-center justify-center p-4 transition-colors duration-300 ${isDark ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
+                <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-xl overflow-hidden border border-slate-100 dark:border-slate-800 p-8 relative">
+                  <button onClick={() => setIsDark(!isDark)} className="absolute top-4 right-4 p-2 rounded-full bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 transition">
+                    <i className={`fas ${isDark ? 'fa-sun' : 'fa-moon'}`}></i>
+                  </button>
+                  <div className="flex justify-center mb-6 mt-4">
+                     <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center rotate-3 shadow-inner"><i className="fas fa-heartbeat text-3xl"></i></div>
+                  </div>
+                  <h1 className="text-3xl font-bold text-center text-slate-800 dark:text-white mb-2">FitTrack Cloud</h1>
+                  <p className="text-center text-slate-500 dark:text-slate-400 mb-8 text-sm">Zadej email a heslo vytvořené ve Firebase.</p>
+                  <form onSubmit={handleLogin} className="space-y-4">
+                    <div className="relative">
+                      <i className="fas fa-envelope absolute left-4 top-4 text-slate-400"></i>
+                      <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="Email" className="w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border rounded-xl outline-none transition text-slate-900 dark:text-white border-slate-200 dark:border-slate-700" required />
+                    </div>
+                    <div className="relative">
+                      <i className="fas fa-lock absolute left-4 top-4 text-slate-400"></i>
+                      <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="Heslo" className={`w-full pl-12 pr-4 py-3 bg-slate-50 dark:bg-slate-950 border rounded-xl outline-none transition text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 ${loginError ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : 'border-slate-200 dark:border-slate-700'}`} required />
+                    </div>
+                    {loginError && <p className="text-red-500 text-xs mt-2 ml-1">Nesprávný email nebo heslo.</p>}
+                    <button type="submit" className="w-full mt-2 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-3.5 rounded-xl font-bold shadow-md transition-colors">
+                      Přihlásit se <i className="fas fa-arrow-right"></i>
+                    </button>
+                  </form>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className={`min-h-screen transition-colors duration-300 ${isDark ? 'dark' : ''}`}>
+              <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans pb-20 md:pb-0 relative">
+                
+                <header className="bg-white dark:bg-slate-900 shadow-sm border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20 transition-colors">
+                  <div className="max-w-5xl mx-auto px-4 py-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h1 className="text-2xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <i className="fas fa-heartbeat text-indigo-600 dark:text-indigo-400"></i> FitTrack
+                      </h1>
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <button onClick={() => setIsGraphOpen(true)} className="w-8 h-8 flex justify-center items-center rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 dark:text-indigo-400 transition" title="Historie skóre">
+                          <i className="fas fa-chart-bar"></i>
+                        </button>
+                        <button onClick={() => setIsQuickAddOpen(true)} className="w-8 h-8 flex justify-center items-center rounded-full bg-indigo-100 hover:bg-indigo-200 text-indigo-700 dark:bg-indigo-900/50 dark:hover:bg-indigo-800/70 dark:text-indigo-300 transition" title="Rychlé přidání">
+                          <i className="fas fa-plus"></i>
+                        </button>
+                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1"></div>
+                        <button onClick={openSettings} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition" title="Nastavení">
+                          <i className="fas fa-cog"></i>
+                        </button>
+                        <button onClick={() => setIsDark(!isDark)} className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition" title="Přepnout režim">
+                          <i className={`fas ${isDark ? 'fa-sun' : 'fa-moon'}`}></i>
+                        </button>
+                        <button onClick={handleLogout} className="p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 text-slate-500 dark:text-slate-400 hover:text-red-500 transition" title="Odhlásit se">
+                          <i className="fas fa-sign-out-alt"></i>
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-4 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0">
+                      <div className="flex-1 min-w-[140px] bg-gradient-to-r from-orange-400 to-red-500 rounded-xl p-3 text-white shadow-md flex items-center gap-3">
+                        <div className="bg-white/20 p-2 rounded-lg w-10 h-10 flex items-center justify-center"><i className="fas fa-fire text-xl"></i></div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wider opacity-80">🔥 Streak</p>
+                          <p className="text-xl font-bold">{stats.streak} dní</p>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-w-[140px] bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl p-3 text-white shadow-md flex items-center gap-3 cursor-pointer hover:opacity-90 transition-opacity" onClick={() => setIsGraphOpen(true)}>
+                        <div className="bg-white/20 p-2 rounded-lg w-10 h-10 flex items-center justify-center"><i className="fas fa-trophy text-xl"></i></div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wider opacity-80">🌟 Skóre</p>
+                          <p className="text-xl font-bold">{stats.score} XP</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </header>
+
+                {missedWorkouts.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800/50 p-4 sticky top-[130px] md:top-[100px] z-10">
+                    <div className="max-w-5xl mx-auto flex items-start gap-3">
+                      <i className="fas fa-exclamation-triangle text-red-500 mt-1"></i>
+                      <div>
+                        <h3 className="text-red-800 dark:text-red-400 font-bold text-sm">
+                          {missedWorkouts.length === 1 ? 'Nezapsaný trénink!' : `Nezapsané tréninky (${missedWorkouts.length})!`}
+                        </h3>
+                        <p className="text-red-700 dark:text-red-300 text-xs mt-1">Máš naplánované aktivity v minulosti, u kterých jsi nevyplnil výsledek.</p>
+                        <div className="flex gap-2 mt-2">
+                          {missedWorkouts.map(([date, w]) => {
+                             const d = parseDateString(date);
+                             return (
+                                <button key={date} onClick={() => { if(currentDate.getMonth() !== d.getMonth()) setCurrentDate(new Date(d.getFullYear(), d.getMonth(), 1)); openModal(date); }} className="text-xs bg-red-100 hover:bg-red-200 dark:bg-red-900/40 text-red-700 dark:text-red-300 px-2 py-1 rounded">
+                                  {d.getDate()}. {d.getMonth()+1}.
+                                </button>
+                             )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <main className="max-w-5xl mx-auto px-4 py-8">
+                  <div className="flex items-center justify-between mb-6 bg-white dark:bg-slate-900 p-4 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800">
+                    <button onClick={() => setCurrentDate(new Date(year, month - 1, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition"><i className="fas fa-chevron-left"></i></button>
+                    <h2 className="text-xl font-bold capitalize">{monthNames[month]} {year}</h2>
+                    <button onClick={() => setCurrentDate(new Date(year, month + 1, 1))} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition"><i className="fas fa-chevron-right"></i></button>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+                    <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50">
+                      {dayNames.map(day => (
+                        <div key={day} className="py-3 text-center text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">{day}</div>
+                      ))}
+                    </div>
+                    
+                    <div className="grid grid-cols-7 auto-rows-fr">
+                      {Array.from({ length: firstDay }).map((_, i) => (
+                        <div key={`empty-${i}`} className="min-h-[80px] md:min-h-[120px] bg-slate-50/50 dark:bg-slate-950/20 border-b border-r border-slate-100 dark:border-slate-800/50"></div>
+                      ))}
+                      
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const dateStr = formatDate(year, month, day);
+                        const workout = workouts[dateStr];
+                        const isToday = dateStr === todayStr;
+
+                        const todayStyles = isToday ? 'ring-2 ring-inset ring-indigo-500 bg-indigo-50/30 dark:bg-indigo-900/10 shadow-inner' : 'bg-transparent';
+                        const wDate = parseDateString(dateStr);
+                        const isMissed = workout && workout.status === 'planned' && wDate <= today;
+                        const missedStyles = isMissed ? 'bg-red-50/50 dark:bg-red-900/10' : '';
+
+                        return (
+                          <div key={day} onClick={() => openModal(dateStr)} className={`min-h-[90px] md:min-h-[120px] p-1 md:p-2 border-b border-r border-slate-100 dark:border-slate-800/50 cursor-pointer transition-all hover:bg-slate-50 dark:hover:bg-slate-800/30 relative group ${todayStyles} ${missedStyles}`}>
+                            <div className="flex justify-between items-start">
+                              <span className={`w-6 h-6 flex items-center justify-center rounded-full text-sm font-medium z-10 ${isToday ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-700 dark:text-slate-300'}`}>{day}</span>
+                            </div>
+                            
+                            {workout && (
+                              <div className="mt-1 space-y-1 relative z-10">
+                                <div className="md:hidden flex justify-center mt-2">
+                                  {workout.status === 'completed' && <div className="w-3 h-3 rounded-full bg-green-500 shadow-sm"></div>}
+                                  {workout.status === 'planned' && <div className={`w-3 h-3 rounded-full shadow-sm ${isMissed ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}`}></div>}
+                                  {workout.status === 'skipped' && <div className="w-3 h-3 rounded-full bg-slate-400 shadow-sm"></div>}
+                                  {workout.status === 'moved' && <div className="w-3 h-3 rounded-full bg-orange-500 shadow-sm"></div>}
+                                </div>
+                                
+                                <div className={`hidden md:block text-xs p-1.5 rounded-lg border leading-tight line-clamp-2 ${workout.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 text-green-800 dark:text-green-400' : ''} ${workout.status === 'planned' ? (isMissed ? 'bg-red-100 border-red-300 text-red-800 font-bold' : 'bg-blue-50 border-blue-200 text-blue-800 dark:text-blue-400') : ''} ${workout.status === 'skipped' ? 'bg-slate-100 border-slate-300 text-slate-500 opacity-80' : ''} ${workout.status === 'moved' ? 'bg-orange-50 border-orange-200 text-orange-800 opacity-60' : ''}`}>
+                                  <span className="font-semibold block truncate">
+                                    {isMissed && <i className="fas fa-exclamation-triangle mr-1 text-red-500"></i>}
+                                    {workout.title}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </main>
+
+                {/* MODAL PRO DETAIL DNE */}
+                {isModalOpen && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 50 }}>
+                    <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                      <div className="p-5 flex justify-between items-start border-b border-slate-100 dark:border-slate-800">
+                        <div>
+                          <h3 className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+                            {parseDateString(selectedDate).toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          </h3>
+                          <h2 className="text-2xl font-bold text-slate-800 dark:text-white">
+                            {selectedWorkout ? selectedWorkout.title : 'Přidat plán na den'}
+                          </h2>
+                        </div>
+                        <button type="button" onClick={() => setIsModalOpen(false)} className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-full text-slate-500">
+                          <i className="fas fa-times-circle text-xl"></i>
+                        </button>
+                      </div>
+
+                      <div className="p-5 overflow-y-auto custom-scrollbar flex-1">
+                        {showBonusAlert && (
+                          <div className="mb-4 bg-gradient-to-r from-yellow-400 to-amber-500 p-4 rounded-xl text-white font-bold flex items-center gap-3">
+                            <i className="fas fa-chart-line text-2xl"></i> {showBonusAlert}
+                          </div>
+                        )}
+
+                        {selectedWorkout ? (
+                          <div className="space-y-6">
+                            {selectedWorkout.isRoutine && selectedWorkout.status === 'planned' && (
+                              <div className="space-y-4">
+                                {EXERCISE_PLAN.map((ex, index) => (
+                                  <div key={ex.id} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <div className="flex justify-between items-start mb-3">
+                                      <div>
+                                        <h4 className="font-bold text-slate-800 dark:text-slate-100">{index + 1}. {ex.name}</h4>
+                                        <span className="text-xs text-slate-500">{ex.target}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-xs font-semibold bg-indigo-100 text-indigo-700 px-2 py-1 rounded">{ex.sets} série</span>
+                                        <div className="text-xs mt-1 text-slate-500">{ex.reps}</div>
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-3 gap-3 mt-4">
+                                      {[0, 1, 2].map(setIdx => (
+                                        <div key={setIdx} className="flex flex-col">
+                                          <label className="text-[10px] uppercase text-slate-400 text-center mb-1">Série {setIdx + 1}</label>
+                                          <button
+                                            type="button" 
+                                            onClick={(e) => { e.preventDefault(); openPicker(ex.id, setIdx, ex.isTime, ex.maxVal); }}
+                                            className="w-full text-center p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl font-bold text-indigo-700 dark:text-indigo-400 shadow-sm hover:border-indigo-500 transition-colors"
+                                          >
+                                            {activeLogs[ex.id]?.[setIdx] !== '' && activeLogs[ex.id]?.[setIdx] !== undefined ? `${activeLogs[ex.id][setIdx]} ${ex.isTime ? 's' : ''}` : '-'}
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                                <button type="button" onClick={() => handleAction('complete_routine')} className="w-full mt-4 flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white p-4 rounded-xl font-bold shadow-lg">
+                                  <i className="fas fa-check-circle"></i> Uložit trénink
+                                </button>
+                              </div>
+                            )}
+
+                            {!selectedWorkout.isRoutine && selectedWorkout.status === 'planned' && (
+                              <button type="button" onClick={() => handleAction('complete_simple')} className="w-full flex items-center justify-center gap-2 bg-green-500 text-white p-3 rounded-xl font-semibold">
+                                <i className="fas fa-check-circle"></i> Odcvičeno (+50 XP)
+                              </button>
+                            )}
+
+                            {selectedWorkout.status === 'planned' && (
+                               <div className="grid grid-cols-2 gap-3 mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+                                <button type="button" onClick={() => handleAction('move')} className="w-full flex items-center justify-center gap-2 bg-orange-100 text-orange-700 p-3 rounded-xl font-semibold">
+                                  <i className="fas fa-arrow-circle-right"></i> Odložit
+                                </button>
+                                <button type="button" onClick={() => handleAction('skip')} className="w-full flex items-center justify-center gap-2 bg-slate-100 text-slate-700 p-3 rounded-xl font-semibold">
+                                  <i className="fas fa-times-circle"></i> Vynechat
+                                </button>
+                              </div>
+                            )}
+
+                            {selectedWorkout.status === 'completed' && (
+                              <div className="space-y-6">
+                                <div className="text-center py-4">
+                                  <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 text-green-500 rounded-full flex items-center justify-center mx-auto mb-3"><i className="fas fa-check-circle text-3xl"></i></div>
+                                  <h4 className="font-bold text-lg text-slate-800 dark:text-white">Skvělá práce!</h4>
+                                  {selectedWorkout.xp && (
+                                     <span className="inline-block mt-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 font-bold px-3 py-1 rounded-full text-sm">+{selectedWorkout.xp} XP získáno</span>
+                                  )}
+                                </div>
+                                {selectedWorkout.isRoutine && selectedWorkout.logs && (
+                                  <div className="space-y-4 border-t border-slate-100 dark:border-slate-800 pt-6">
+                                    <div className="flex justify-between items-end mb-2">
+                                      <h5 className="font-bold text-slate-700 dark:text-slate-300">Přehled výkonu:</h5>
+                                      {prevWorkout && <span className="text-[10px] text-slate-400 uppercase tracking-wider">Porovnání s minule</span>}
+                                    </div>
+                                    {EXERCISE_PLAN.map((ex, index) => {
+                                      const logs = selectedWorkout.logs[ex.id];
+                                      const prevExLogs = prevWorkout?.logs?.[ex.id];
+                                      if (!logs) return null;
+                                      return (
+                                        <div key={ex.id} className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+                                          <div className="flex justify-between items-center mb-3">
+                                            <h4 className="font-bold text-slate-800 dark:text-slate-100">{index + 1}. {ex.name}</h4>
+                                          </div>
+                                          <div className="grid grid-cols-3 gap-3">
+                                            {[0, 1, 2].map(setIdx => (
+                                              <div key={setIdx} className="flex flex-col items-center justify-center bg-white dark:bg-slate-900 py-2.5 px-1 rounded-lg border border-slate-100 dark:border-slate-700">
+                                                <span className="text-[10px] uppercase text-slate-400 mb-1">Série {setIdx + 1}</span>
+                                                <span className="font-bold text-slate-800 dark:text-slate-200">
+                                                  {logs[setIdx] !== '' && logs[setIdx] !== undefined ? `${logs[setIdx]} ${ex.isTime ? 's' : 'x'}` : '-'}
+                                                </span>
+                                                {renderDiff(logs[setIdx], prevExLogs?.[setIdx])}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-4 mt-2">
+                            <div>
+                              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Co máš v plánu?</label>
+                              <input type="text" value={newPlanTitle} onChange={(e) => setNewPlanTitle(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl outline-none text-slate-900 dark:text-white" />
+                            </div>
+                            <div className="flex items-center gap-2 mt-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 cursor-pointer" onClick={() => setIsRoutinePlan(!isRoutinePlan)}>
+                              <input type="checkbox" checked={isRoutinePlan} readOnly className="w-5 h-5 text-indigo-600 rounded" />
+                              <div className="ml-2">
+                                <p className="font-semibold text-slate-800 dark:text-white text-sm">Tohle bude můj rutinní trénink</p>
+                              </div>
+                            </div>
+                            <button type="button" onClick={() => handleAction('add')} className="w-full mt-2 flex items-center justify-center gap-2 bg-indigo-600 text-white p-3 rounded-xl font-semibold">
+                              <i className="fas fa-plus-circle"></i> Naplánovat
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* MODAL PRO NASTAVENÍ APLIKACE */}
+                {isSettingsOpen && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 70 }}>
+                     <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col p-6 animate-in zoom-in-95">
+                        <div className="flex justify-between items-center mb-6">
+                           <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                             <i className="fas fa-cog text-indigo-500"></i> Nastavení
+                           </h2>
+                           <button type="button" onClick={() => setIsSettingsOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times-circle text-xl"></i></button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 mb-1">Pravidelný tréninkový plán</h3>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Vyber si dny v týdnu, kdy chceš aplikací automaticky nabízet svou tréninkovou rutinu.</p>
+                            <div className="grid grid-cols-4 gap-2">
+                              {WEEK_DAYS_CONFIG.map(day => (
+                                <button
+                                  key={day.id} onClick={() => toggleRoutineDay(day.id)}
+                                  className={`py-2 rounded-xl text-sm font-bold transition-colors ${tempRoutineDays.includes(day.id) ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                                >
+                                  {day.short}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <button type="button" onClick={saveSettings} className="w-full mt-6 flex items-center justify-center gap-2 bg-indigo-600 text-white p-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition">
+                             Uložit nastavení
+                          </button>
+                        </div>
+                     </div>
+                  </div>
+                )}
+
+                {/* GRAF HISTORIE MODAL */}
+                {isGraphOpen && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 60 }}>
+                     <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col p-6 animate-in zoom-in-95">
+                        <div className="flex justify-between items-center mb-4">
+                           <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                             <i className="fas fa-chart-line text-indigo-500"></i> Historie Skóre
+                           </h2>
+                           <button type="button" onClick={() => setIsGraphOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times-circle text-xl"></i></button>
+                        </div>
+                        <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mb-6">{stats.score} XP</p>
+                        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 -mx-2 px-2">
+                          {['7D', '1M', '3M', '6M', '1R', '2R', 'VŠE'].map(range => (
+                             <button
+                                key={range} onClick={() => setGraphRange(range)}
+                                className={`px-3 py-1.5 text-xs font-bold rounded-full flex-shrink-0 transition-colors ${graphRange === range ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+                             >
+                               {range === '1D' ? 'Den' : range === '7D' ? 'Týden' : range === '1M' ? 'Měsíc' : range === '3M' ? '3 Měsíce' : range === '6M' ? '6 Měsíců' : range === '1R' ? 'Rok' : range === '2R' ? '2 Roky' : 'Celkem'}
+                             </button>
+                          ))}
+                        </div>
+                        <div className="mt-4 mb-8">
+                          {renderGraph()}
+                        </div>
+                     </div>
+                  </div>
+                )}
+
+                {/* QUICK ADD MODAL */}
+                {isQuickAddOpen && (
+                  <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4" style={{ zIndex: 60 }}>
+                     <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden flex flex-col p-6 animate-in zoom-in-95">
+                        <div className="flex justify-between items-center mb-6">
+                           <h2 className="text-xl font-bold text-slate-800 dark:text-white">Přidat aktivitu</h2>
+                           <button type="button" onClick={() => setIsQuickAddOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times-circle text-xl"></i></button>
+                        </div>
+                        <div className="space-y-4">
+                          <input type="text" value={qaTitle} onChange={(e) => setQaTitle(e.target.value)} placeholder="Např. Běh 5km, Kolo, Plavání..." className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 rounded-xl outline-none" autoFocus />
+                          <input type="date" value={qaDate} onChange={(e) => setQaDate(e.target.value)} className="w-full p-3 bg-white dark:bg-slate-900 border border-slate-300 rounded-xl outline-none" />
+                          <button type="button" onClick={handleQuickAdd} disabled={!qaTitle} className="w-full mt-4 flex justify-center bg-indigo-600 disabled:bg-slate-300 text-white p-3 rounded-xl font-semibold">Uložit</button>
+                        </div>
+                     </div>
+                  </div>
+                )}
+
+                {/* IOS PICKER MODAL */}
+                <IOSPicker 
+                  isOpen={pickerConfig.isOpen} 
+                  onClose={() => setPickerConfig(p => ({...p, isOpen: false}))}
+                  onSelect={handlePickerSelect}
+                  initialValue={pickerConfig.currentVal}
+                  isTime={pickerConfig.isTime}
+                  maxVal={pickerConfig.maxVal}
+                />
+
+              </div>
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
