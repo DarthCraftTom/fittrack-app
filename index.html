@@ -21,7 +21,7 @@
     <!-- Babel pro kompilaci JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <!-- Firebase Compat Libraries (Zaručuje 100% funkčnost v jednom HTML souboru) -->
+    <!-- Firebase Compat Libraries -->
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -43,12 +43,7 @@
         // FIREBASE INICIALIZACE (ÚPRAVA NUTNÁ ZDE!)
         // ==========================================
         
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
+        // 🔴 SEM VLOŽ SVŮJ FIREBASE CONFIG Z KROKU 2 🔴
 const firebaseConfig = {
   apiKey: "AIzaSyAyZKb_Tned5ehZFz7_AnlXb91LBwb1TxU",
   authDomain: "fittrack-8cfab.firebaseapp.com",
@@ -57,11 +52,23 @@ const firebaseConfig = {
   messagingSenderId: "468896934520",
   appId: "1:468896934520:web:c5b43ea21950d875f7db8d"
 };
+        // ------------------------------------------------
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        let firebaseError = null;
+        let auth = null;
+        let db = null;
+
+        // Bezpečné nastartování Firebase (Zabraňuje bílé obrazovce smrti)
+        try {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            auth = firebase.auth();
+            db = firebase.firestore();
+        } catch (e) {
+            console.error("Firebase inicializační chyba:", e);
+            firebaseError = e.message;
+        }
 
         const { useState, useEffect, useRef, useMemo } = React;
 
@@ -91,6 +98,13 @@ const app = initializeApp(firebaseConfig);
         const parseDateString = (dateStr) => {
           const [y, m, d] = dateStr.split('-');
           return new Date(y, m - 1, d);
+        };
+        
+        // Bezpečné generování data do minulosti
+        const getPastDateStr = (daysAgo) => {
+          const d = new Date();
+          d.setDate(d.getDate() - daysAgo);
+          return formatDate(d.getFullYear(), d.getMonth(), d.getDate());
         };
 
         // ==========================================
@@ -166,7 +180,12 @@ const app = initializeApp(firebaseConfig);
           // Data z Firestore
           const [stats, setStats] = useState({ streak: 0, score: 0, level: 1 });
           const [routineDays, setRoutineDays] = useState([1, 3, 5]); 
-          const [workouts, setWorkouts] = useState({});
+          
+          // Bezpečné načítání mock dat
+          const [workouts, setWorkouts] = useState({
+            [getPastDateStr(5)]: { id: 1, status: 'completed', title: 'Pravidelný trénink', isRoutine: true, xp: 50, performanceScore: 120, logs: { sq: [10,12,10], pu: [8,6,5], bw: [10,10,10], lu: [10,10,10], gl: [15,15,15], pl: [30,30,30] } },
+            [getPastDateStr(3)]: { id: 2, status: 'completed', title: 'Pravidelný trénink', isRoutine: true, xp: 50, performanceScore: 125, logs: { sq: [12,12,12], pu: [10,8,6], bw: [12,10,10], lu: [12,12,12], gl: [15,15,15], pl: [40,30,30] } },
+          });
 
           // UI Stavy
           const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -191,6 +210,10 @@ const app = initializeApp(firebaseConfig);
 
           // --- FIREBASE: SLEDOVÁNÍ PŘIHLÁŠENÍ ---
           useEffect(() => {
+            if (!auth) {
+                setIsLoading(false);
+                return;
+            }
             const unsubscribe = auth.onAuthStateChanged((currentUser) => {
               setUser(currentUser);
               setIsLoading(false);
@@ -200,22 +223,19 @@ const app = initializeApp(firebaseConfig);
 
           // --- FIREBASE: NAČÍTÁNÍ DAT (Realtime) ---
           useEffect(() => {
-            if (!user) return;
+            if (!user || !db) return;
             const userRef = db.collection('users').doc(user.uid);
             
-            // 1. Načtení uživatelských statistik a nastavení
             const unsubUser = userRef.onSnapshot((doc) => {
               if (doc.exists) {
                 const data = doc.data();
                 setStats({ score: data.score || 0, streak: data.streak || 0, level: Math.floor((data.score || 0) / 1000) + 1 });
                 setRoutineDays(data.routineDays || [1, 3, 5]);
               } else {
-                // Založení nového uživatele v DB
                 userRef.set({ score: 0, streak: 0, routineDays: [1, 3, 5] });
               }
             });
 
-            // 2. Načtení všech tréninků
             const unsubWorkouts = userRef.collection('workouts').onSnapshot((snap) => {
               const fetchedWorkouts = {};
               snap.forEach(doc => { fetchedWorkouts[doc.id] = doc.data(); });
@@ -228,11 +248,38 @@ const app = initializeApp(firebaseConfig);
           // --- FIREBASE: PŘIHLÁŠENÍ & ODHLÁŠENÍ ---
           const handleLogin = (e) => {
             e.preventDefault();
+            if (!auth) return;
             auth.signInWithEmailAndPassword(emailInput, passwordInput)
               .then(() => { setLoginError(false); setPasswordInput(''); })
               .catch((error) => { setLoginError(true); console.error(error); });
           };
-          const handleLogout = () => auth.signOut();
+          const handleLogout = () => { if(auth) auth.signOut(); };
+
+          // ZOBRAZENÍ CHYBOVÉ OBRAZOVKY (Když chybí API Klíč)
+          if (firebaseConfig.apiKey === "TVUJ_API_KLIC" || firebaseError) {
+              return (
+                  <div className={`min-h-screen flex items-center justify-center p-4 transition-colors ${isDark ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
+                      <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-xl overflow-hidden border border-red-500 p-8 text-center">
+                          <i className="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i>
+                          <h1 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Chybí propojení s databází!</h1>
+                          <p className="text-slate-600 dark:text-slate-300 text-sm mb-6 text-left">
+                              Zobrazila se ti tato obrazovka, protože aplikace se nemůže připojit k Firebase.
+                          </p>
+                          <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl text-left text-sm text-slate-700 dark:text-slate-300 mb-6">
+                              <p className="font-bold mb-2">Jak to opravit:</p>
+                              <ol className="list-decimal pl-4 space-y-2">
+                                  <li>Jdi na <a href="https://console.firebase.google.com/" className="text-indigo-500 underline" target="_blank">Firebase</a> a vytvoř webovou aplikaci.</li>
+                                  <li>Zkopíruj <code>firebaseConfig</code>.</li>
+                                  <li>Otevři kód a nahraď text <strong>"TVUJ_API_KLIC"</strong> svým skutečným klíčem.</li>
+                                  <li>Nahraj kód znovu na GitHub.</li>
+                              </ol>
+                          </div>
+                          {firebaseError && <p className="text-xs text-red-500 opacity-80 break-words">{firebaseError}</p>}
+                      </div>
+                  </div>
+              );
+          }
+
 
           // --- LOGIKA APLIKACE ---
           const year = currentDate.getFullYear();
@@ -283,7 +330,8 @@ const app = initializeApp(firebaseConfig);
           };
 
           const saveSettings = () => {
-            db.collection('users').doc(user.uid).set({ routineDays: tempRoutineDays }, { merge: true });
+            if (db && user) db.collection('users').doc(user.uid).set({ routineDays: tempRoutineDays }, { merge: true });
+            else setRoutineDays([...tempRoutineDays]); // Fallback if DB not ready
             setIsSettingsOpen(false);
           };
 
@@ -306,6 +354,7 @@ const app = initializeApp(firebaseConfig);
 
           // FIREBASE: ZÁPIS DAT
           const saveWorkoutToDB = (dateStr, workoutData, earnedXp) => {
+            if (!db || !user) return; // Ochrana před chybou
             const userRef = db.collection('users').doc(user.uid);
             userRef.collection('workouts').doc(dateStr).set(workoutData);
             
@@ -369,7 +418,6 @@ const app = initializeApp(firebaseConfig);
               }
               else if (action === 'skip') {
                 updatedWorkout = { ...currentWorkout, status: 'skipped' };
-                // Nulování streaku probíhá uvnitř saveWorkoutToDB pokud je to isRoutine
                 setIsModalOpen(false);
               }
               else if (action === 'move') {
@@ -406,7 +454,6 @@ const app = initializeApp(firebaseConfig);
           };
 
           const filteredHistory = useMemo(() => {
-            // Vytvoříme pole historie skóre na základě reálných odcvičených tréninků
             const history = [];
             const sortedDates = Object.keys(workouts).sort((a,b) => new Date(a) - new Date(b));
             let currentScore = 0;
